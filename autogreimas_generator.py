@@ -1,28 +1,33 @@
 #!/usr/bin/env python3
 """
-Greimas Cascade Generator (v9)
+Greimas Cascade Generator (v10)
 
-L1: 16 diagrams. L1 D(n+1).S1 = L1 D(n).C2 (linear chain).
+L1: 16 diagrams. L1 D(n+1).S1 is chosen by taking L1 D(n).C2 and, by default,
+    selecting a near-synonym of it, so the chain doesn't produce literal
+    duplicates and the next square is anchored on a fresh surface form.
+    Use --direct to disable and pass C2 straight through.
+
 L2:  4 diagrams. S-terms taken from ~S2 of consecutive L1 diagrams.
 L3:  1 diagram.  S-terms taken from  C2 of the four L2 diagrams.
 
-S-position generation (revised):
+S-position generation:
     P1 (upper-left)  = S1  (given)
     P2 (upper-right) = S2  = ANTITHESIS of S1
     P3 (lower-left)  = ~S2 = NEGATION of S2
     P4 (lower-right) = ~S1 = ANTITHESIS of ~S2
 
-    Derivation chain:  S1 --(antithesis)--> S2 --(negation)--> ~S2 --(antithesis)--> ~S1
+    Derivation chain:
+        S1 --(antithesis)--> S2 --(negation)--> ~S2 --(antithesis)--> ~S1
 
-Uniqueness strategy — three-tier escalation:
-  1. Normal generation with uniqueness retries.
-  2. Synonym substitution for still-colliding terms.
-  3. Accept the duplicate (last resort), flagged in the output.
+Uniqueness strategy (per diagram):
+    1. Normal retries with exclusion list.
+    2. Synonym substitution for still-colliding terms.
+    3. Accept the duplicate (last resort, flagged in output).
 
-Model presets — chosen via CLI:
-  --fast / -f          llama3.2:3b   (default)
-  --quality / -q       llama3.1:8b
-  --model <name>       explicit preset name
+Model presets:
+    --fast / -f          llama3.2:3b   (default)
+    --quality / -q       llama3.1:8b
+    --model <name>       explicit preset name
 """
 
 import sys
@@ -65,12 +70,14 @@ NUM_PREDICT  = MODEL_PRESETS[DEFAULT_PRESET]["num_predict"]
 
 
 # =========================================================
-# CONFIG (preset-independent)
+# CONFIG
 # =========================================================
-MAX_RETRIES           = 3
-MAX_UNIQUENESS_TRIES  = 4
-MAX_SYNONYM_TRIES     = 3
-MAX_EXCLUSION_TERMS   = 80
+MAX_RETRIES           = 3    # retries for valid JSON
+MAX_UNIQUENESS_TRIES  = 4    # normal attempts before synonym fallback
+MAX_SYNONYM_TRIES     = 3    # synonym lookups per colliding diagram term
+MAX_NEXT_S1_TRIES     = 2    # batch-synonym attempts for the C2 -> S1 step
+NEXT_S1_CANDIDATES    = 5    # how many synonyms to ask for per batch
+MAX_EXCLUSION_TERMS   = 80   # cap on exclusion list size per prompt
 STOP_TOKENS           = ["<|endoftext|>", "<|im_end|>", "</s>"]
 
 KEYS_FULL    = ["S1", "S2", "~S1", "~S2", "M1", "M2", "M3", "M4", "C1", "C2", "C3", "C4"]
@@ -304,6 +311,19 @@ Requirements:
 Return ONLY a JSON object with exactly this key: {{"synonym": "<word>"}}
 """
 
+PROMPT_SYNONYM_BATCH = """Provide {n} near-synonyms for the term "{term}".
+
+Requirements:
+- Each must be a genuine near-synonym of "{term}".
+- Each must be 1-2 words.
+- All must be distinct from "{term}" and from each other.
+- Each must be conceptually substantive (not a phrase or vague modifier).
+- Order the list from MOST SIMILAR to LEAST SIMILAR relative to "{term}".
+
+Return ONLY a JSON object with exactly this key:
+{{"synonyms": ["word1", "word2", ...]}}
+"""
+
 EXCLUSION_NOTE = """
 UNIQUENESS CONSTRAINT:
 Every term you output (except S1) must be a NEW word that does not appear
@@ -418,7 +438,63 @@ def _exclusion_block(exclude_norms, extra_terms=None, label=""):
 
 
 # =========================================================
-# SYNONYM FALLBACK (Strategy 2)
+# C2 -> S1 SYNONYM STEP (the new bit)
+# =========================================================
+def pick_synonym_for_next_s1(c2_term, exclude_norms,
+                             max_tries=MAX_NEXT_S1_TRIES):
+    """Ask the LLM for near-synonyms of `c2_term`; return one that does
+    not collide with the registry. Returns None if no viable synonym
+    can be found within `max_tries` batch attempts.
+
+    The chosen term becomes the S1 of the next L1 diagram. It carries
+    essentially the same meaning as `c2_term` but is a *different word*,
+    which (a) avoids the direct registry collision between D(n).C2 and
+    D(n+1).S1, and (b) gives the LLM a fresh anchor for associations.
+    """
+    tried = {normalize(c2_term)}
+
+    for attempt in range(1, max_tries + 1):
+        prompt = PROMPT_SYNONYM_BATCH.format(
+            term=c2_term, n=NEXT_S1_CANDIDATES
+        )
+        try:
+            data = llm_json(prompt, ["synonyms"], f"syn-batch:{c2_term}")
+        except Exception as e:
+            print(f"      ✗ next-S1 synonym attempt {attempt}/{max_tries} "
+                  f"for '{c2_term}': {e}")
+            continue
+
+        raw_list = data.get("synonyms", [])
+        if not isinstance(raw_list, list):
+            continue
+
+        viable = []
+        for cand in raw_list:
+            if not isinstance(cand, str):
+                continue
+            cand = cand.strip()
+            norm = normalize(cand)
+            if not norm or norm in tried:
+                continue
+            tried.add(norm)
+            if term_collides(cand, "_next_s1_"):
+                continue
+            viable.append(cand)
+
+        if viable:
+            # Prefer a mid-list candidate: still a near-synonym, but a
+            # bit less canonical than the first item, which tends to
+            # produce more distinct downstream associations.
+            return viable[len(viable) // 2]
+
+        print(f"      ↻ next-S1 synonym attempt {attempt}/{max_tries} "
+              f"for '{c2_term}': no viable candidates")
+
+    return None
+
+
+# =========================================================
+# SYNONYM FALLBACK (per-diagram, for colliding terms)
 # =========================================================
 def find_synonym(term, exclude_norms, extra_terms=None, max_tries=MAX_SYNONYM_TRIES):
     tried = {normalize(term)}
@@ -508,7 +584,6 @@ def gen_full_square(s1, location):
     last_collisions = {}
     check_keys = [k for k in KEYS_FULL if k != "S1"]
 
-    # -------- Tier 1 --------
     for attempt in range(1, MAX_UNIQUENESS_TRIES + 1):
         note = ""
         if attempt > 1:
@@ -550,7 +625,6 @@ def gen_full_square(s1, location):
     if last_data is None:
         return None, STATUS_DUPLICATE
 
-    # -------- Tier 2 --------
     print(f"      → entering synonym fallback for {location}")
     syn_data, ok = try_synonym_substitution(
         last_data, last_collisions, location,
@@ -564,7 +638,6 @@ def gen_full_square(s1, location):
                 register_term(term, location, role)
         return syn_data, STATUS_SYNONYM
 
-    # -------- Tier 3 --------
     print(f"      ✗ all fallbacks exhausted; accepting duplicates "
           f"for {location}")
     for role, term in last_data.items():
@@ -583,7 +656,6 @@ def gen_partial(s_terms, location):
     last_collisions = {}
     check_keys = list(KEYS_PARTIAL)
 
-    # -------- Tier 1 --------
     for attempt in range(1, MAX_UNIQUENESS_TRIES + 1):
         note = ""
         if attempt > 1:
@@ -629,7 +701,6 @@ def gen_partial(s_terms, location):
     if last_data is None:
         return None, STATUS_DUPLICATE
 
-    # -------- Tier 2 --------
     print(f"      → entering synonym fallback for {location}")
     syn_data, ok = try_synonym_substitution(
         last_data, last_collisions, location,
@@ -642,7 +713,6 @@ def gen_partial(s_terms, location):
             register_term(syn_data[role], location, role)
         return syn_data, STATUS_SYNONYM
 
-    # -------- Tier 3 --------
     print(f"      ✗ all fallbacks exhausted; accepting duplicates "
           f"for {location}")
     for role in check_keys:
@@ -674,7 +744,7 @@ def apply_status_flag(diagram, status):
 # =========================================================
 # CASCADE
 # =========================================================
-def build_cascade(initial, output_path, preset_name):
+def build_cascade(initial, output_path, preset_name, use_synonym_step=True):
     USED_TERMS.clear()
     REGISTRATION_ORDER.clear()
 
@@ -685,6 +755,7 @@ def build_cascade(initial, output_path, preset_name):
             "model_preset": preset_name,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "structure": {"L1": 16, "L2": 4, "L3": 1, "total": 21},
+            "synonym_step": "enabled" if use_synonym_step else "disabled",
             "layout": {
                 "P1 (upper-left)":  "S1",
                 "P2 (upper-right)": "S2",
@@ -699,15 +770,17 @@ def build_cascade(initial, output_path, preset_name):
                 "max_exclusion_terms": MAX_EXCLUSION_TERMS,
                 "max_uniqueness_tries": MAX_UNIQUENESS_TRIES,
                 "max_synonym_tries": MAX_SYNONYM_TRIES,
+                "max_next_s1_tries": MAX_NEXT_S1_TRIES,
+                "next_s1_candidates": NEXT_S1_CANDIDATES,
                 "temperature": TEMPERATURE,
                 "num_predict": NUM_PREDICT,
             },
             "uniqueness_strategy": (
-                "1. normal retries; 2. synonym substitution; "
-                "3. accept duplicate (flagged)"
+                "L1 chain: C2 → synonym → next S1 (default). "
+                "Per diagram: retries → synonyms → accept duplicate (flagged)."
             ),
             "relationships": {
-                "L1": "L1 D(n+1).S1 = L1 D(n).C2 (with global uniqueness)",
+                "L1": "L1 D(n+1).S1 = synonym of L1 D(n).C2",
                 "L2 D1": "S1..S4 = ~S2 of L1 D1, D2, D3, D4",
                 "L2 D2": "S1..S4 = ~S2 of L1 D5, D6, D7, D8",
                 "L2 D3": "S1..S4 = ~S2 of L1 D9, D10, D11, D12",
@@ -722,13 +795,17 @@ def build_cascade(initial, output_path, preset_name):
 
     # ---------------- LEVEL 1 ----------------
     print("=" * 72)
-    print("LEVEL 1 — 16 diagrams (S1 of D(n+1) = C2 of D(n))")
+    print("LEVEL 1 — 16 diagrams (S1 chain via C2 + synonym step)")
     print(f"         Model: {MODEL_NAME}")
+    print(f"         Synonym step: "
+          f"{'ON' if use_synonym_step else 'OFF (--direct)'}")
     print(f"         S-chain: S1 → S2 (antithesis) → ~S2 (negation) → ~S1 (antithesis)")
     print(f"         Positions: P3=~S2 (lower-left), P4=~S1 (lower-right)")
     print("=" * 72)
 
     current_s1 = initial
+    current_s1_source = {"type": "initial", "source_term": initial}
+
     for i in range(1, 17):
         location = f"L1.D{i}"
         print(f"\n[{location}] S1 = '{current_s1}'   "
@@ -739,6 +816,7 @@ def build_cascade(initial, output_path, preset_name):
             raise RuntimeError(f"Failed to generate {location}")
 
         apply_status_flag(d, status)
+        d["_s1_source"] = current_s1_source
         state["L1"][f"D{i}"] = d
         save(state, output_path)
 
@@ -748,7 +826,36 @@ def build_cascade(initial, output_path, preset_name):
         elif status == STATUS_DUPLICATE:
             flag = "  [duplicate accepted]"
         print(f"        ✓ {time.time() - t0:.1f}s   C2 = '{d['C2']}'{flag}")
-        current_s1 = d["C2"]
+
+        # ---------- Choose the S1 for the NEXT diagram ----------
+        if i < 16:
+            next_c2 = d["C2"]
+            if use_synonym_step:
+                print(f"        · picking synonym of C2 for next S1…")
+                s1_norms = {normalize(current_s1)}
+                syn = pick_synonym_for_next_s1(next_c2, exclude_norms=s1_norms)
+                if syn is not None:
+                    print(f"        → next S1 = '{syn}' "
+                          f"(synonym of C2 '{next_c2}')")
+                    current_s1 = syn
+                    current_s1_source = {
+                        "type": "synonym_of_c2",
+                        "source_term": next_c2,
+                    }
+                else:
+                    print(f"        → synonym step failed; "
+                          f"using C2 directly")
+                    current_s1 = next_c2
+                    current_s1_source = {
+                        "type": "direct_c2",
+                        "source_term": next_c2,
+                    }
+            else:
+                current_s1 = next_c2
+                current_s1_source = {
+                    "type": "direct_c2",
+                    "source_term": next_c2,
+                }
 
     # ---------------- LEVEL 2 ----------------
     print("\n" + "=" * 72)
@@ -825,10 +932,20 @@ def print_summary(state):
             return "  ↻ synonyms"
         return ""
 
+    def src_marker(d):
+        src = d.get("_s1_source", {})
+        t = src.get("type", "?")
+        if t == "synonym_of_c2":
+            return " [syn]"
+        if t == "direct_c2":
+            return " [direct]"
+        return ""
+
     print("\nL1 (S1 → C2 chain):")
     for i in range(1, 17):
         d = state["L1"][f"D{i}"]
-        print(f"  D{i:>2}: S1={d['S1']:<24} C2={d['C2']}{flag_for(d)}")
+        print(f"  D{i:>2}: S1={d['S1']:<24} C2={d['C2']}"
+              f"{src_marker(d)}{flag_for(d)}")
 
     print("\nL2 (S-terms from L1 ~S2):")
     for i in range(1, 5):
@@ -841,6 +958,14 @@ def print_summary(state):
     print(f"  D1: S1={d['S1']:<18} S2={d['S2']:<18} "
           f"~S2={d['~S2']:<18} ~S1={d['~S1']}{flag_for(d)}")
 
+    n_syn_next = sum(
+        1 for d in state["L1"].values()
+        if d.get("_s1_source", {}).get("type") == "synonym_of_c2"
+    )
+    n_direct_next = sum(
+        1 for d in state["L1"].values()
+        if d.get("_s1_source", {}).get("type") == "direct_c2"
+    )
     n_syn = sum(
         1 for level in ("L1", "L2", "L3")
         for d in state[level].values()
@@ -851,8 +976,10 @@ def print_summary(state):
         for d in state[level].values()
         if d.get("_unresolved_collisions")
     )
-    print(f"\nFallbacks used: "
-          f"{n_syn} via synonym substitution, {n_dup} with accepted duplicates")
+    print(f"\nL1 chain: {n_syn_next} links via synonym step, "
+          f"{n_direct_next} direct")
+    print(f"Per-diagram fallbacks: {n_syn} via synonyms, "
+          f"{n_dup} with accepted duplicates")
     print("=" * 72)
 
 
@@ -890,6 +1017,12 @@ def parse_args():
         "--suffix", "-s",
         default=None,
         help="Optional filename suffix to distinguish runs.",
+    )
+    p.add_argument(
+        "--direct",
+        action="store_true",
+        help="Disable the C2 → synonym step; pass C2 straight to the "
+             "next diagram's S1.",
     )
     return p.parse_args()
 
@@ -932,16 +1065,22 @@ if __name__ == "__main__":
     suffix = f"_{args.suffix}" if args.suffix else ""
     output_path = f"greimas_cascade_{slugify(concept)}{suffix}.json"
 
+    use_synonym_step = not args.direct
+
     print(f"\nCascade for: '{concept}'")
     print(f"Model:       {preset['label']}")
     print(f"Output:      {output_path}")
     print(f"Structure:   16 + 4 + 1 = 21 diagrams")
     print(f"S-chain:     S1 → S2 (antithesis) → ~S2 (negation) → ~S1 (antithesis)")
+    print(f"Synonym step: {'ON (default)' if use_synonym_step else 'OFF (--direct)'}")
     print(f"Uniqueness:  retries → synonyms → accept-duplicate")
     print(f"Progress saves to disk after every diagram.\n")
 
     try:
-        state = build_cascade(concept, output_path, preset_name)
+        state = build_cascade(
+            concept, output_path, preset_name,
+            use_synonym_step=use_synonym_step,
+        )
     except KeyboardInterrupt:
         print("\n\nInterrupted. Partial result saved to:")
         print(f"  {output_path}")
