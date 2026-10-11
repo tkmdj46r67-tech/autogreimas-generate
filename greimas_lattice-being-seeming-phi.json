@@ -1,0 +1,406 @@
+{
+  "metadata": {
+    "s1_input": "being",
+    "s2_input": "seeming",
+    "model": "phi4-mini",
+    "generated_at": "2026-10-10T22:04:14"
+  },
+  "square": {
+    "S1": "being",
+    "S2": "seeming",
+    "~S2": "real",
+    "~S1": "non-being",
+    "M11": "Essence",
+    "M12": "Authenticity",
+    "M13": "Existence",
+    "M14": "Illusion",
+    "M21": "Illusion",
+    "M22": "Contradiction",
+    "M23": "Paradox",
+    "M24": "Deception",
+    "Mixed1": "Existential",
+    "Mixed2": "Appearance"
+  },
+  "validation": {
+    "rule1": {
+      "pass": true,
+      "explanation": "S1 and S2 are contraries because they can both fail together (non-being and real), both hold together (being and seeming), or one can hold while the other fails."
+    },
+    "rule2": {
+      "pass": true,
+      "explanation": "S1 and ~S1 are contradictories because exactly one of them holds; being cannot be non-being."
+    },
+    "rule3": {
+      "pass": true,
+      "explanation": "S2 and ~S2 are contradictories because exactly one of them holds; seeming cannot be non-seeming."
+    },
+    "rule4": {
+      "pass": true,
+      "explanation": "~S2 implies S1 because if something is not real, it must be seeming."
+    },
+    "rule5": {
+      "pass": true,
+      "explanation": "~S1 implies S2 because if something is not being, it must be seeming."
+    },
+    "rule6": {
+      "pass": true,
+      "explanation": "~S1 and ~S2 are contraries because they can both fail together (being and real), both hold together (non-being and seeming), or one can hold while the other fails."
+    }
+  },
+  "lattice": {
+    "concepts": [
+      {
+        "id": 0,
+        "label": "⊥",
+        "short": "Bottom",
+        "name": "Bottom — empty extent, all four M2 attributes",
+        "extent": [],
+        "intent": [
+          "Illusion",
+          "Contradiction",
+          "Paradox",
+          "Deception"
+        ]
+      },
+      {
+        "id": 1,
+        "label": "being",
+        "short": "S1",
+        "name": "being — the inner term S1",
+        "extent": [
+          "being"
+        ],
+        "intent": [
+          "Illusion",
+          "Contradiction",
+          "Paradox"
+        ]
+      },
+      {
+        "id": 2,
+        "label": "seeming",
+        "short": "S2",
+        "name": "seeming — the inner term S2",
+        "extent": [
+          "seeming"
+        ],
+        "intent": [
+          "Illusion",
+          "Contradiction",
+          "Deception"
+        ]
+      },
+      {
+        "id": 3,
+        "label": "real",
+        "short": "~S2",
+        "name": "real — the inner term ~S2",
+        "extent": [
+          "real"
+        ],
+        "intent": [
+          "Illusion",
+          "Paradox",
+          "Deception"
+        ]
+      },
+      {
+        "id": 4,
+        "label": "non-being",
+        "short": "~S1",
+        "name": "non-being — the inner term ~S1",
+        "extent": [
+          "non-being"
+        ],
+        "intent": [
+          "Contradiction",
+          "Paradox",
+          "Deception"
+        ]
+      },
+      {
+        "id": 5,
+        "label": "Essence",
+        "short": "M1:Essence",
+        "name": "Essence — the M1 meta-term combining being, seeming",
+        "extent": [
+          "being",
+          "seeming"
+        ],
+        "intent": [
+          "Illusion",
+          "Contradiction"
+        ]
+      },
+      {
+        "id": 6,
+        "label": "Authenticity",
+        "short": "M1:Authenticity",
+        "name": "Authenticity — the M1 meta-term combining non-being, real",
+        "extent": [
+          "non-being",
+          "real"
+        ],
+        "intent": [
+          "Paradox",
+          "Deception"
+        ]
+      },
+      {
+        "id": 7,
+        "label": "Existence",
+        "short": "M1:Existence",
+        "name": "Existence — the M1 meta-term combining being, real",
+        "extent": [
+          "being",
+          "real"
+        ],
+        "intent": [
+          "Illusion",
+          "Paradox"
+        ]
+      },
+      {
+        "id": 8,
+        "label": "Illusion",
+        "short": "M1:Illusion",
+        "name": "Illusion — the M1 meta-term combining seeming, non-being",
+        "extent": [
+          "seeming",
+          "non-being"
+        ],
+        "intent": [
+          "Contradiction",
+          "Deception"
+        ]
+      },
+      {
+        "id": 9,
+        "label": "Existential",
+        "short": "Mix:Existential",
+        "name": "Existential — the mixed term combining being, non-being",
+        "extent": [
+          "being",
+          "non-being"
+        ],
+        "intent": [
+          "Contradiction",
+          "Paradox"
+        ]
+      },
+      {
+        "id": 10,
+        "label": "Appearance",
+        "short": "Mix:Appearance",
+        "name": "Appearance — the mixed term combining seeming, real",
+        "extent": [
+          "seeming",
+          "real"
+        ],
+        "intent": [
+          "Illusion",
+          "Deception"
+        ]
+      },
+      {
+        "id": 11,
+        "label": "Illusion",
+        "short": "M2:Illusion",
+        "name": "Illusion — the M2 meta-term containing being, seeming, real",
+        "extent": [
+          "being",
+          "seeming",
+          "real"
+        ],
+        "intent": [
+          "Illusion"
+        ]
+      },
+      {
+        "id": 12,
+        "label": "Contradiction",
+        "short": "M2:Contradiction",
+        "name": "Contradiction — the M2 meta-term containing being, seeming, non-being",
+        "extent": [
+          "being",
+          "seeming",
+          "non-being"
+        ],
+        "intent": [
+          "Contradiction"
+        ]
+      },
+      {
+        "id": 13,
+        "label": "Paradox",
+        "short": "M2:Paradox",
+        "name": "Paradox — the M2 meta-term containing non-being, real, being",
+        "extent": [
+          "non-being",
+          "real",
+          "being"
+        ],
+        "intent": [
+          "Paradox"
+        ]
+      },
+      {
+        "id": 14,
+        "label": "Deception",
+        "short": "M2:Deception",
+        "name": "Deception — the M2 meta-term containing non-being, real, seeming",
+        "extent": [
+          "non-being",
+          "real",
+          "seeming"
+        ],
+        "intent": [
+          "Deception"
+        ]
+      },
+      {
+        "id": 15,
+        "label": "⊤",
+        "short": "Top",
+        "name": "Top — all inner terms, no shared attribute",
+        "extent": [
+          "being",
+          "seeming",
+          "real",
+          "non-being"
+        ],
+        "intent": []
+      }
+    ],
+    "edges": [
+      [
+        15,
+        11
+      ],
+      [
+        15,
+        12
+      ],
+      [
+        15,
+        13
+      ],
+      [
+        15,
+        14
+      ],
+      [
+        11,
+        5
+      ],
+      [
+        11,
+        7
+      ],
+      [
+        11,
+        10
+      ],
+      [
+        12,
+        5
+      ],
+      [
+        12,
+        8
+      ],
+      [
+        12,
+        9
+      ],
+      [
+        13,
+        6
+      ],
+      [
+        13,
+        7
+      ],
+      [
+        13,
+        9
+      ],
+      [
+        14,
+        6
+      ],
+      [
+        14,
+        8
+      ],
+      [
+        14,
+        10
+      ],
+      [
+        5,
+        1
+      ],
+      [
+        5,
+        2
+      ],
+      [
+        6,
+        4
+      ],
+      [
+        6,
+        3
+      ],
+      [
+        7,
+        1
+      ],
+      [
+        7,
+        3
+      ],
+      [
+        8,
+        2
+      ],
+      [
+        8,
+        4
+      ],
+      [
+        9,
+        1
+      ],
+      [
+        9,
+        4
+      ],
+      [
+        10,
+        2
+      ],
+      [
+        10,
+        3
+      ],
+      [
+        1,
+        0
+      ],
+      [
+        2,
+        0
+      ],
+      [
+        3,
+        0
+      ],
+      [
+        4,
+        0
+      ]
+    ]
+  }
+}
