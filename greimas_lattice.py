@@ -349,7 +349,6 @@ def generate_with_uniqueness(prompt_fn, required_keys, label,
             if is_collision(val, exclude_locations={label}):
                 collisions.append((k, val))
         if not collisions:
-            # register all
             for k in required_keys:
                 register_term(data[k].strip(), label, k)
             return data
@@ -357,7 +356,6 @@ def generate_with_uniqueness(prompt_fn, required_keys, label,
             print(f"  ⚠ {label}.{k}='{val}' collides; forcing exclusion")
             forced.add(val)
         last_data = data
-    # last resort: register anyway and return
     print(f"  ⚠ {label}: accepting possible duplicates after {max_tries} tries")
     if last_data:
         for k in required_keys:
@@ -604,6 +602,7 @@ def build_lattice(square):
 # =========================================================
 
 def main():
+    global MODEL
     parser = argparse.ArgumentParser(
         description="Generate a Greimas square and its B4 concept lattice."
     )
@@ -619,7 +618,6 @@ def main():
                         help="Allow duplicate terms (default: strict uniqueness)")
     args = parser.parse_args()
 
-    global MODEL
     MODEL = args.model
 
     s1 = args.s1
