@@ -9,12 +9,14 @@ strict derivation rules, then builds the associated B4 concept lattice.
 Outputs JSON.
 
 Usage:
-    python greimas_lattice.py --s1 "being" --s2 "seeming" -o result.json
+    python greimas_lattice.py --s1 "being" --s2 "seeming"
+    python greimas_lattice.py --s1 "liberty" --s2 "servitude" -m phi4-mini
+    python greimas_lattice.py --list-models
     python greimas_lattice.py  # interactive mode
 
 Requirements:
     ollama (pip install ollama)
-    A running Ollama instance with a model like llama3.2:3b
+    A running Ollama instance with a compatible model (phi4-mini, llama3.2:3b, etc.)
 """
 
 import sys
@@ -40,6 +42,26 @@ TEMPERATURE = 0.3
 NUM_PREDICT = 800
 MAX_RETRIES = 3
 MAX_UNIQUENESS_TRIES = 4
+
+# =========================================================
+# OLLAMA MODEL HELPERS
+# =========================================================
+
+def list_ollama_models():
+    """Return a list of model names available in the local Ollama instance."""
+    try:
+        result = ollama.list()
+        models = result.get("models", [])
+        names = []
+        for m in models:
+            # ollama returns either 'name' or 'model' depending on version
+            n = m.get("name") or m.get("model")
+            if n:
+                names.append(n)
+        return sorted(names)
+    except Exception as e:
+        print(f"Could not list Ollama models: {e}")
+        return []
 
 # =========================================================
 # TERM REGISTRY (uniqueness enforcement)
@@ -603,15 +625,36 @@ def build_lattice(square):
 
 def main():
     global MODEL
+
+    # --- Handle --list-models before argparse complains about required args ---
+    if "--list-models" in sys.argv:
+        names = list_ollama_models()
+        if names:
+            print("Available Ollama models:")
+            for n in names:
+                print(f"  {n}")
+        else:
+            print("No models found. Pull one with: ollama pull phi4-mini")
+        sys.exit(0)
+
     parser = argparse.ArgumentParser(
-        description="Generate a Greimas square and its B4 concept lattice."
+        description="Generate a Greimas square and its B4 concept lattice.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Examples:
+  python greimas_lattice.py --s1 being --s2 seeming
+  python greimas_lattice.py --s1 liberty --s2 servitude -m phi4-mini
+  python greimas_lattice.py --s1 good --s2 bad -m llama3.2:3b -o out.json
+  python greimas_lattice.py --list-models
+""",
     )
     parser.add_argument("--s1", help="First positive term (S1)")
     parser.add_argument("--s2", help="Second positive term (S2, the antithesis of S1)")
     parser.add_argument("--output", "-o", default="greimas_lattice.json",
                         help="Output JSON file (default: greimas_lattice.json)")
-    parser.add_argument("--model", default=MODEL,
-                        help=f"Ollama model name (default: {MODEL})")
+    parser.add_argument("--model", "-m", default=MODEL,
+                        help=f"Ollama model to use (default: {MODEL}). "
+                             f"Run --list-models to see what is available.")
     parser.add_argument("--skip-validation", action="store_true",
                         help="Skip the LLM validation step")
     parser.add_argument("--allow-duplicates", action="store_true",
@@ -619,6 +662,23 @@ def main():
     args = parser.parse_args()
 
     MODEL = args.model
+
+    # --- Verify the chosen model exists locally ---
+    available = list_ollama_models()
+    if available and MODEL not in available:
+        # Accept partial matches like "phi4-mini" matching "phi4-mini:latest"
+        base = MODEL.split(":")[0]
+        matches = [m for m in available if m == MODEL or m.split(":")[0] == base]
+        if matches:
+            MODEL = matches[0]
+            print(f"Note: using '{MODEL}' (matched from '{args.model}')")
+        else:
+            print(f"Warning: model '{MODEL}' not found in Ollama.")
+            print(f"Available models: {', '.join(available)}")
+            print(f"Pull it with: ollama pull {MODEL}")
+            resp = input("Continue anyway? [y/N]: ").strip().lower()
+            if resp != "y":
+                sys.exit(1)
 
     s1 = args.s1
     s2 = args.s2
